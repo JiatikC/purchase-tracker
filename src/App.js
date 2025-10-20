@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, X, Edit2, Settings, ArrowLeft, Info } from 'lucide-react';
+import { Plus, X, Edit2, Settings, ArrowLeft, Info, LogOut } from 'lucide-react';
 import { createClient } from '@supabase/supabase-js';
 
 // Initialize Supabase client
@@ -8,9 +8,10 @@ const supabaseAnonKey = process.env.REACT_APP_SUPABASE_ANON_KEY;
 const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
 const PurchaseDecisionApp = () => {
+  const [user, setUser] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
-  const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
   const [showCategoryModal, setShowCategoryModal] = useState(false);
@@ -20,6 +21,12 @@ const PurchaseDecisionApp = () => {
   const [filterStatus, setFilterStatus] = useState('all');
   const [filterCategory, setFilterCategory] = useState('all');
   
+  // Login form state
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [authLoading, setAuthLoading] = useState(false);
+  const [authError, setAuthError] = useState('');
+
   const [formData, setFormData] = useState({
     name: '',
     category: '',
@@ -95,11 +102,65 @@ const PurchaseDecisionApp = () => {
     }
   ];
 
-  // Load data on mount
+  // Check auth status on mount
   useEffect(() => {
-    loadItems();
-    loadCategories();
+    checkUser();
+    
+    const { data: authListener } = supabase.auth.onAuthStateChange((event, session) => {
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        loadItems();
+        loadCategories();
+      }
+    });
+
+    return () => {
+      authListener.subscription.unsubscribe();
+    };
   }, []);
+
+  const checkUser = async () => {
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+      if (session?.user) {
+        await loadItems();
+        await loadCategories();
+      }
+    } catch (error) {
+      console.error('Error checking user:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLogin = async (e) => {
+    e.preventDefault();
+    setAuthLoading(true);
+    setAuthError('');
+
+    try {
+      const { data, error } = await supabase.auth.signInWithPassword({
+        email,
+        password,
+      });
+
+      if (error) throw error;
+      
+      setUser(data.user);
+    } catch (error) {
+      setAuthError(error.message);
+    } finally {
+      setAuthLoading(false);
+    }
+  };
+
+  const handleLogout = async () => {
+    await supabase.auth.signOut();
+    setUser(null);
+    setItems([]);
+    setCategories([]);
+  };
 
   const loadItems = async () => {
     try {
@@ -112,9 +173,6 @@ const PurchaseDecisionApp = () => {
       setItems(data || []);
     } catch (error) {
       console.error('Error loading items:', error);
-      alert('Failed to load items');
-    } finally {
-      setLoading(false);
     }
   };
 
@@ -167,7 +225,6 @@ const PurchaseDecisionApp = () => {
     
     try {
       if (selectedItem) {
-        // Update existing item
         const { error } = await supabase
           .from('items')
           .update({ ...formData, score })
@@ -175,7 +232,6 @@ const PurchaseDecisionApp = () => {
         
         if (error) throw error;
       } else {
-        // Insert new item
         const { error } = await supabase
           .from('items')
           .insert([{ ...formData, score }]);
@@ -261,6 +317,7 @@ const PurchaseDecisionApp = () => {
     }
   };
 
+  // Login Screen
   if (loading) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
@@ -269,18 +326,78 @@ const PurchaseDecisionApp = () => {
     );
   }
 
+  if (!user) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
+        <div className="bg-white rounded-lg shadow-lg p-8 w-full max-w-md">
+          <h1 className="text-2xl font-bold text-gray-900 mb-6 text-center">Purchase Decision Tracker</h1>
+          
+          <form onSubmit={handleLogin} className="space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Email</label>
+              <input
+                type="email"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+                placeholder="your@email.com"
+                required
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Password</label>
+              <input
+                type="password"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-gray-900"
+                placeholder="••••••••"
+                required
+              />
+            </div>
+
+            {authError && (
+              <div className="bg-red-50 text-red-600 p-3 rounded-lg text-sm">
+                {authError}
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={authLoading}
+              className="w-full bg-gray-900 text-white py-2 rounded-lg hover:bg-gray-800 disabled:opacity-50"
+            >
+              {authLoading ? 'Logging in...' : 'Login'}
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
+
+  // Main App (same as before, just add logout button)
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
       <div className="bg-white border-b border-gray-200 px-4 py-4">
         <div className="flex items-center justify-between max-w-4xl mx-auto">
           <h1 className="text-xl font-semibold text-gray-900">Purchase Decision Tracker</h1>
-          <button
-            onClick={() => setShowCategoryModal(true)}
-            className="p-2 hover:bg-gray-100 rounded-lg"
-          >
-            <Settings className="w-5 h-5 text-gray-600" />
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowCategoryModal(true)}
+              className="p-2 hover:bg-gray-100 rounded-lg"
+            >
+              <Settings className="w-5 h-5 text-gray-600" />
+            </button>
+            <button
+              onClick={handleLogout}
+              className="p-2 hover:bg-gray-100 rounded-lg"
+              title="Logout"
+            >
+              <LogOut className="w-5 h-5 text-gray-600" />
+            </button>
+          </div>
         </div>
       </div>
 
@@ -362,6 +479,7 @@ const PurchaseDecisionApp = () => {
         <Plus className="w-6 h-6" />
       </button>
 
+      {/* All the modals remain the same - Add/Edit, Detail, Info, Category */}
       {/* Add/Edit Modal */}
       {showAddModal && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-start justify-center p-4 overflow-y-auto z-50">
